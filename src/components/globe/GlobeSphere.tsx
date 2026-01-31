@@ -24,25 +24,41 @@ const globeFragmentShader = `
   varying vec3 vWorldPosition;
   varying vec2 vUv;
 
-  uniform vec3 baseColor;
   uniform vec3 edgeColor;
   uniform float opacity;
   uniform float time;
 
   void main() {
-    // Fresnel effect for glass-like edges - stronger effect for more transparency in center
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+
+    // Fresnel effect for glass-like edges
     float fresnel = pow(1.0 - max(dot(viewDirection, vNormal), 0.0), 3.0);
 
-    // Color only on edges, transparent center
-    vec3 color = edgeColor;
+    // Specular highlights for glass reflections
+    vec3 lightDir1 = normalize(vec3(5.0, 3.0, 5.0));
+    vec3 lightDir2 = normalize(vec3(-3.0, 5.0, 2.0));
+
+    vec3 halfVector1 = normalize(lightDir1 + viewDirection);
+    vec3 halfVector2 = normalize(lightDir2 + viewDirection);
+
+    float specular1 = pow(max(dot(vNormal, halfVector1), 0.0), 64.0);
+    float specular2 = pow(max(dot(vNormal, halfVector2), 0.0), 48.0);
+
+    // White specular highlights
+    vec3 specularColor = vec3(1.0) * (specular1 * 0.6 + specular2 * 0.3);
+
+    // Base edge color with fresnel
+    vec3 color = edgeColor * fresnel;
+
+    // Add specular highlights
+    color += specularColor;
 
     // Very subtle shimmer on edges only
-    float shimmer = sin(vUv.x * 30.0 + time * 0.5) * sin(vUv.y * 30.0 + time * 0.3) * 0.03 * fresnel;
+    float shimmer = sin(vUv.x * 30.0 + time * 0.5) * sin(vUv.y * 30.0 + time * 0.3) * 0.02 * fresnel;
     color += shimmer;
 
-    // Only show color at edges (fresnel), center is mostly transparent
-    float alpha = fresnel * 0.7 + opacity * 0.1;
+    // Alpha: edges visible, center mostly transparent, specular always visible
+    float alpha = fresnel * 0.6 + opacity * 0.1 + (specular1 + specular2) * 0.5;
 
     gl_FragColor = vec4(color, alpha);
   }
@@ -57,7 +73,6 @@ export function GlobeSphere({ radius = 1 }: GlobeSphereProps) {
 
   const uniforms = useMemo(
     () => ({
-      baseColor: { value: new THREE.Color("#b9e5fe") },
       edgeColor: { value: new THREE.Color("#7cd4fd") },
       opacity: { value: 0.15 },
       time: { value: 0 },

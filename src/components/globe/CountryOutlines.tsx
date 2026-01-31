@@ -3,29 +3,20 @@
 import { useMemo } from "react";
 import * as THREE from "three";
 import countriesGeoJson from "@/data/countries.geo.json";
+import { latLngToVector3 } from "@/lib/geo-utils";
 
 interface CountryOutlinesProps {
   radius?: number;
 }
 
-// Convert lat/lng to 3D position on sphere
-function latLngTo3D(lat: number, lng: number, radius: number): [number, number, number] {
-  const phi = (90 - lat) * (Math.PI / 180);
-  const theta = (lng + 180) * (Math.PI / 180);
-
-  const x = -radius * Math.sin(phi) * Math.cos(theta);
-  const y = radius * Math.cos(phi);
-  const z = radius * Math.sin(phi) * Math.sin(theta);
-
-  return [x, y, z];
-}
-
-// Convert a ring of coordinates to 3D points
 function ringToPoints(
   coords: number[][],
   radius: number
 ): [number, number, number][] {
-  return coords.map(([lng, lat]) => latLngTo3D(lat, lng, radius));
+  return coords.map(([lng, lat]) => {
+    const pos = latLngToVector3(lat, lng, radius);
+    return [pos.x, pos.y, pos.z];
+  });
 }
 
 // Extract all rings from a polygon (exterior + any holes)
@@ -117,27 +108,23 @@ export function CountryOutlines({ radius = 1 }: CountryOutlinesProps) {
     const elevatedRadius = radius * 1.002; // Slightly above globe surface
 
     countriesGeoJson.features.forEach((feature) => {
-      const geometry = feature.geometry as {
+      const geom = feature.geometry as {
         type: string;
-        coordinates: number[][][] | number[][][][]
+        coordinates: number[][][] | number[][][][];
       };
 
-      if (geometry.type === "Polygon") {
-        // Polygon: coordinates is number[][][]
-        // [ring][point][lng, lat]
-        const rings = extractPolygonRings(
-          geometry.coordinates as number[][][],
-          elevatedRadius
-        );
+      // Only process Polygon and MultiPolygon geometries
+      if (geom.type !== "Polygon" && geom.type !== "MultiPolygon") return;
+
+      const polygons: number[][][][] =
+        geom.type === "Polygon"
+          ? [geom.coordinates as number[][][]]
+          : (geom.coordinates as number[][][][]);
+
+      polygons.forEach((polygonCoords) => {
+        const rings = extractPolygonRings(polygonCoords, elevatedRadius);
         allLines.push(...rings);
-      } else if (geometry.type === "MultiPolygon") {
-        // MultiPolygon: coordinates is number[][][][]
-        // [polygon][ring][point][lng, lat]
-        (geometry.coordinates as number[][][][]).forEach((polygonCoords) => {
-          const rings = extractPolygonRings(polygonCoords, elevatedRadius);
-          allLines.push(...rings);
-        });
-      }
+      });
     });
 
     return allLines;
