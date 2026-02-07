@@ -1,26 +1,19 @@
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import bbox from "@turf/bbox";
 import { point } from "@turf/helpers";
-import countriesGeoJson from "@/data/countries.geo.json";
+import { countryFeatures } from "@/lib/load-countries";
 
-interface CountryProperties {
-  NAME: string;
-  ADM0_A3: string;
-}
-
-interface CountryFeature {
-  properties: CountryProperties;
+interface CountryWithBbox {
+  properties: { NAME: string; ADM0_A3: string };
   geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon;
   bbox: [number, number, number, number];
 }
 
 // Pre-compute bounding boxes at startup for fast rejection
-const countriesWithBbox: CountryFeature[] = (
-  countriesGeoJson as unknown as { features: Array<{ type: string; properties: CountryProperties; geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon }> }
-).features.map((f) => ({
-  properties: f.properties,
+const countriesWithBbox: CountryWithBbox[] = countryFeatures.map((f) => ({
+  properties: { NAME: f.properties.NAME, ADM0_A3: f.properties.ADM0_A3 },
   geometry: f.geometry,
-  bbox: bbox({ type: "Feature", properties: f.properties, geometry: f.geometry } as GeoJSON.Feature) as [number, number, number, number],
+  bbox: bbox(f) as [number, number, number, number],
 }));
 
 /**

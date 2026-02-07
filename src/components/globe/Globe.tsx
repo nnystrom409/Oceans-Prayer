@@ -7,7 +7,6 @@ import * as THREE from "three";
 
 import { GlobeSphere } from "./GlobeSphere";
 import { Atmosphere } from "./Atmosphere";
-import { CountryFills } from "./CountryFills";
 import { CountryOutlines } from "./CountryOutlines";
 import { Countries } from "./Countries";
 
@@ -40,17 +39,14 @@ export function Globe({ onCountryClick }: GlobeProps) {
         {/* Main sphere */}
         <GlobeSphere radius={radius} />
 
-        {/* Frosted land masses */}
-        <CountryFills radius={radius} />
-
         {/* Atmosphere glow */}
         <Atmosphere radius={radius} />
 
         {/* Country border outlines */}
         <CountryOutlines radius={radius} />
 
-        {/* Click detection */}
-        <Countries radius={radius} onCountryClick={onCountryClick} />
+        {/* Countries with LOD fills and click detection */}
+        <Countries radius={radius} onCountryClick={onCountryClick} globeGroupRef={groupRef} />
       </group>
 
       {/* Orbit controls */}

@@ -1,45 +1,95 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState, useMemo } from "react";
 import * as THREE from "three";
-import { ThreeEvent } from "@react-three/fiber";
-import { vector3ToLatLng } from "@/lib/geo-utils";
-import { findCountryAtPoint } from "@/lib/country-lookup";
+import { ThreeEvent, useThree, useFrame } from "@react-three/fiber";
+import { countryFeatures } from "@/lib/load-countries";
+import { CountryFills, LodLevel, generateCountryGeometry } from "./CountryFills";
+import { useGpuPicker } from "./useGpuPicker";
 
 interface CountriesProps {
   radius?: number;
   onCountryClick?: (countryCode: string, countryName: string) => void;
+  globeGroupRef?: React.RefObject<THREE.Group | null>;
 }
 
-export function Countries({ radius = 1, onCountryClick }: CountriesProps) {
-  const meshRef = useRef<THREE.Mesh>(null);
+// LOD distance thresholds
+const LOD_THRESHOLDS = {
+  high: 2.0,    // Use high detail when camera < 2 units
+  medium: 3.5,  // Use medium detail when camera < 3.5 units
+  // low: > 3.5 units
+};
 
-  // Handle click on globe to detect country using point-in-polygon
+export function Countries({ radius = 1, onCountryClick, globeGroupRef }: CountriesProps) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const [lodLevel, setLodLevel] = useState<LodLevel>("medium");
+  const lodRef = useRef<LodLevel>("medium"); // Ref to avoid stale closure in useFrame
+  const { camera } = useThree();
+
+  // Generate picking geometry (always uses medium LOD for consistent picking)
+  const pickingGeometry = useMemo(
+    () => generateCountryGeometry(radius, "medium"),
+    [radius]
+  );
+
+  // GPU picker hook - pass globe group ref for rotation sync
+  const { pick } = useGpuPicker({ pickingGeometry, globeGroupRef });
+
+  // Update LOD based on camera distance
+  useFrame(() => {
+    const distance = camera.position.length();
+    let newLod: LodLevel;
+
+    if (distance < LOD_THRESHOLDS.high) {
+      newLod = "high";
+    } else if (distance < LOD_THRESHOLDS.medium) {
+      newLod = "medium";
+    } else {
+      newLod = "low";
+    }
+
+    // Only update state when LOD actually changes (ref avoids stale closure)
+    if (newLod !== lodRef.current) {
+      lodRef.current = newLod;
+      setLodLevel(newLod);
+    }
+  });
+
+  // Handle click on globe using GPU picking
   const handleClick = useCallback(
     (event: ThreeEvent<MouseEvent>) => {
-      if (!onCountryClick || !meshRef.current) return;
+      if (!onCountryClick) return;
 
-      // Stop propagation to prevent multiple handlers
       event.stopPropagation();
 
-      // Get the point on the globe that was clicked (in world space)
-      // Transform to local space to account for globe rotation
-      const localPoint = meshRef.current.worldToLocal(event.point.clone());
-      const { lat, lng } = vector3ToLatLng(localPoint, radius);
+      // Get screen coordinates from the event
+      const { clientX, clientY } = event.nativeEvent;
 
-      // Find country at this point using polygon boundaries
-      const country = findCountryAtPoint(lat, lng);
+      // Get canvas bounding rect for proper coordinate calculation
+      const canvas = event.target as HTMLElement;
+      const rect = canvas.getBoundingClientRect();
+      const screenX = clientX - rect.left;
+      const screenY = clientY - rect.top;
 
-      if (country) {
-        onCountryClick(country.code, country.name);
+      // Use GPU picker to find country
+      const result = pick(screenX, screenY);
+
+      if (result.countryIndex !== null && result.countryIndex < countryFeatures.length) {
+        const feature = countryFeatures[result.countryIndex];
+        const code = feature.properties.ADM0_A3;
+        const name = feature.properties.NAME;
+        onCountryClick(code, name);
       }
     },
-    [onCountryClick, radius]
+    [onCountryClick, pick]
   );
 
   return (
     <group>
-      {/* Invisible sphere for click detection - larger radius and proper settings for reliable hits */}
+      {/* Country fills with LOD */}
+      <CountryFills radius={radius} lodLevel={lodLevel} />
+
+      {/* Invisible sphere for click detection */}
       <mesh ref={meshRef} onClick={handleClick} renderOrder={1000}>
         <sphereGeometry args={[radius * 1.03, 64, 64]} />
         <meshBasicMaterial
