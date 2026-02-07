@@ -30,8 +30,10 @@ export function CobeGlobe({
   const phiRef = useRef(0);
   const velocityRef = useRef(0);
   const widthRef = useRef(0);
+  const hasInteractedRef = useRef(false);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    hasInteractedRef.current = true;
     pointerInteracting.current = e.clientX - pointerInteractionMovement.current;
     if (canvasRef.current) canvasRef.current.style.cursor = "grabbing";
   }, []);
@@ -48,6 +50,7 @@ export function CobeGlobe({
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (pointerInteracting.current !== null) {
+      hasInteractedRef.current = true;
       const delta = e.clientX - pointerInteracting.current;
       pointerInteractionMovement.current = delta;
       velocityRef.current = delta / 200;
@@ -84,7 +87,7 @@ export function CobeGlobe({
         : [],
       onRender: (state) => {
         // Auto-rotate when not dragging
-        if (pointerInteracting.current === null && autoRotate) {
+        if (pointerInteracting.current === null && autoRotate && !hasInteractedRef.current) {
           phiRef.current += rotationSpeed;
         }
 

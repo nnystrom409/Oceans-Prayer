@@ -74,6 +74,16 @@ export default function NewGlobePage() {
       const controls = globeRef.current.controls();
       controls.autoRotate = true;
       controls.autoRotateSpeed = 0.5;
+
+      const stopAutoRotate = () => {
+        controls.autoRotate = false;
+        controls.update();
+      };
+
+      controls.addEventListener("start", stopAutoRotate);
+      return () => {
+        controls.removeEventListener("start", stopAutoRotate);
+      };
     }
   }, []);
 

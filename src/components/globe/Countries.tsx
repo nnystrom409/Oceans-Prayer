@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import * as THREE from "three";
-import { ThreeEvent, useThree, useFrame } from "@react-three/fiber";
+import { useThree, useFrame } from "@react-three/fiber";
 import { countryFeatures } from "@/lib/load-countries";
 import { CountryFills, LodLevel, generateCountryGeometry } from "./CountryFills";
 import { useGpuPicker } from "./useGpuPicker";
@@ -10,6 +10,7 @@ import { useGpuPicker } from "./useGpuPicker";
 interface CountriesProps {
   radius?: number;
   onCountryClick?: (countryCode: string, countryName: string) => void;
+  onCountryFocus?: (point: THREE.Vector3) => void;
   globeGroupRef?: React.RefObject<THREE.Group | null>;
 }
 
@@ -20,11 +21,12 @@ const LOD_THRESHOLDS = {
   // low: > 3.5 units
 };
 
-export function Countries({ radius = 1, onCountryClick, globeGroupRef }: CountriesProps) {
-  const meshRef = useRef<THREE.Mesh>(null);
+const DRAG_THRESHOLD_PX = 6;
+
+export function Countries({ radius = 1, onCountryClick, onCountryFocus, globeGroupRef }: CountriesProps) {
   const [lodLevel, setLodLevel] = useState<LodLevel>("medium");
-  const lodRef = useRef<LodLevel>("medium"); // Ref to avoid stale closure in useFrame
-  const { camera } = useThree();
+  const lodRef = useRef<LodLevel>("medium");
+  const { camera, gl, size } = useThree();
 
   // Generate picking geometry (always uses medium LOD for consistent picking)
   const pickingGeometry = useMemo(
@@ -48,57 +50,80 @@ export function Countries({ radius = 1, onCountryClick, globeGroupRef }: Countri
       newLod = "low";
     }
 
-    // Only update state when LOD actually changes (ref avoids stale closure)
     if (newLod !== lodRef.current) {
       lodRef.current = newLod;
       setLodLevel(newLod);
     }
   });
 
-  // Handle click on globe using GPU picking
-  const handleClick = useCallback(
-    (event: ThreeEvent<MouseEvent>) => {
-      if (!onCountryClick) return;
+  // DOM-level click detection — bypasses R3F/OrbitControls event conflicts
+  useEffect(() => {
+    const canvas = gl.domElement;
+    let startX = 0, startY = 0;
+    let camX = 0, camY = 0, camZ = 0;
 
-      event.stopPropagation();
+    const onPointerDown = (e: PointerEvent) => {
+      startX = e.clientX;
+      startY = e.clientY;
+      camX = camera.position.x;
+      camY = camera.position.y;
+      camZ = camera.position.z;
+    };
 
-      // Get screen coordinates from the event
-      const { clientX, clientY } = event.nativeEvent;
+    const onPointerUp = (e: PointerEvent) => {
+      // Check pointer displacement
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const pointerMoved = dx * dx + dy * dy > DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX;
 
-      // Get canvas bounding rect for proper coordinate calculation
-      const canvas = event.target as HTMLElement;
+      // Check camera displacement (OrbitControls moves camera, not pointer)
+      const cdx = camera.position.x - camX;
+      const cdy = camera.position.y - camY;
+      const cdz = camera.position.z - camZ;
+      const cameraMoved = cdx * cdx + cdy * cdy + cdz * cdz > 0.0001;
+
+      if (pointerMoved || cameraMoved) return;
+
+      // Not a drag — do GPU picking
       const rect = canvas.getBoundingClientRect();
-      const screenX = clientX - rect.left;
-      const screenY = clientY - rect.top;
-
-      // Use GPU picker to find country
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
       const result = pick(screenX, screenY);
 
       if (result.countryIndex !== null && result.countryIndex < countryFeatures.length) {
         const feature = countryFeatures[result.countryIndex];
         const code = feature.properties.ADM0_A3;
         const name = feature.properties.NAME;
-        onCountryClick(code, name);
+        onCountryClick?.(code, name);
+
+        // Compute intersection point for focus animation
+        if (onCountryFocus) {
+          const ndc = new THREE.Vector2(
+            (screenX / size.width) * 2 - 1,
+            -(screenY / size.height) * 2 + 1
+          );
+          const raycaster = new THREE.Raycaster();
+          raycaster.setFromCamera(ndc, camera);
+          const sphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), radius);
+          const hitPoint = new THREE.Vector3();
+          if (raycaster.ray.intersectSphere(sphere, hitPoint)) {
+            onCountryFocus(hitPoint);
+          }
+        }
       }
-    },
-    [onCountryClick, pick]
-  );
+    };
+
+    canvas.addEventListener('pointerdown', onPointerDown);
+    canvas.addEventListener('pointerup', onPointerUp);
+    return () => {
+      canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [gl, camera, size, radius, pick, onCountryClick, onCountryFocus]);
 
   return (
     <group>
-      {/* Country fills with LOD */}
       <CountryFills radius={radius} lodLevel={lodLevel} />
-
-      {/* Invisible sphere for click detection */}
-      <mesh ref={meshRef} onClick={handleClick} renderOrder={1000}>
-        <sphereGeometry args={[radius * 1.03, 64, 64]} />
-        <meshBasicMaterial
-          transparent
-          opacity={0}
-          side={THREE.FrontSide}
-          depthTest={false}
-        />
-      </mesh>
     </group>
   );
 }
