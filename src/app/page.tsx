@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 
 // Dynamic import to avoid SSR issues with Three.js
@@ -8,14 +9,13 @@ const GlobeScene = dynamic(
   { ssr: false }
 );
 
-// Initial connections (can be empty or pre-populated)
-const initialConnections = [
-  { id: "1", countryCode: "JPN" },
-  { id: "2", countryCode: "KOR" },
-  { id: "3", countryCode: "PHL" },
-];
-
 export default function Home() {
+  const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
+
+  const handleCountrySelect = useCallback((countryName: string | null) => {
+    setSelectedCountry(countryName);
+  }, []);
+
   return (
     <main className="relative w-screen h-screen overflow-hidden">
       {/* Background gradient */}
@@ -34,13 +34,22 @@ export default function Home() {
       {/* Globe container */}
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="w-full h-full max-w-[1200px] max-h-[900px]">
-          <GlobeScene initialConnections={initialConnections} />
+          <GlobeScene onCountrySelect={handleCountrySelect} />
         </div>
       </div>
 
+      {/* Selected country display */}
+      {selectedCountry && (
+        <div className="absolute top-6 right-6 z-10">
+          <div className="px-4 py-2 rounded-xl bg-white/80 backdrop-blur-md border border-white/50 shadow-lg animate-in fade-in slide-in-from-right-2 duration-300">
+            <span className="text-ocean-600 font-medium">{selectedCountry}</span>
+          </div>
+        </div>
+      )}
+
       {/* Instructions */}
       <div className="absolute bottom-6 right-6 text-sm text-gray-500">
-        <p>Click on a country to add a prayer connection</p>
+        <p>Click on a country to select it</p>
         <p className="text-xs mt-1">Drag to rotate • Scroll to zoom</p>
       </div>
     </main>

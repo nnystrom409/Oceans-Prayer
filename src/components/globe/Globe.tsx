@@ -9,15 +9,12 @@ import { GlobeSphere } from "./GlobeSphere";
 import { Atmosphere } from "./Atmosphere";
 import { CountryOutlines } from "./CountryOutlines";
 import { Countries } from "./Countries";
-import { Arcs } from "./Arcs";
-import { Connection } from "@/lib/geo-utils";
 
 interface GlobeProps {
-  connections: Connection[];
   onCountryClick?: (countryCode: string, countryName: string) => void;
 }
 
-export function Globe({ connections, onCountryClick }: GlobeProps) {
+export function Globe({ onCountryClick }: GlobeProps) {
   const groupRef = useRef<THREE.Group>(null);
   const radius = 1;
 
@@ -48,11 +45,8 @@ export function Globe({ connections, onCountryClick }: GlobeProps) {
         {/* Country border outlines */}
         <CountryOutlines radius={radius} />
 
-        {/* Click detection */}
-        <Countries radius={radius} onCountryClick={onCountryClick} />
-
-        {/* Prayer connection arcs */}
-        <Arcs connections={connections} radius={radius} />
+        {/* Countries with LOD fills and click detection */}
+        <Countries radius={radius} onCountryClick={onCountryClick} globeGroupRef={groupRef} />
       </group>
 
       {/* Orbit controls */}

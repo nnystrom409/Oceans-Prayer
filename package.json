@@ -6,23 +6,41 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "convert-geo": "mapshaper src/data/countries-10m.geo.json -simplify 0.6 keep-shapes -rename-layers countries.geo -o format=topojson src/data/countries.topo.json",
+    "generate-globe-textures": "node scripts/generate-globe-textures.js"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@tailwindcss/postcss": "^4.1.18",
+    "@turf/bbox": "^7.3.3",
+    "@turf/boolean-point-in-polygon": "^7.3.3",
+    "@turf/helpers": "^7.3.3",
+    "cobe": "^0.6.5",
+    "d3-geo": "^3.1.1",
+    "earcut": "^3.0.2",
+    "libtess": "^1.2.2",
     "next": "^16.1.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "three": "^0.182.0"
+    "react-globe.gl": "^2.37.0",
+    "three": "^0.182.0",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
   },
   "devDependencies": {
+    "@types/d3-geo": "^3.1.0",
+    "@types/earcut": "^3.0.0",
     "@types/node": "^25.1.0",
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.182.0",
+    "@types/topojson-client": "^3.1.5",
+    "@types/topojson-specification": "^1.0.5",
     "autoprefixer": "^10.4.24",
+    "canvas": "^3.2.1",
+    "mapshaper": "^0.6.113",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3"

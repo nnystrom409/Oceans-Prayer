@@ -24,9 +24,14 @@ const atmosphereFragmentShader = `
   uniform float intensity;
 
   void main() {
-    float glow = pow(0.75 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
-    vec3 color = glowColor * glow * intensity;
-    float alpha = glow * 0.25;
+    // Layered glow for more depth
+    float innerGlow = pow(0.7 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
+    float outerGlow = pow(0.85 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 3.5);
+
+    vec3 color = glowColor * innerGlow * intensity;
+    color += glowColor * 0.5 * outerGlow * intensity;
+
+    float alpha = innerGlow * 0.35 + outerGlow * 0.15;
     gl_FragColor = vec4(color, alpha);
   }
 `;
@@ -40,8 +45,8 @@ export function Atmosphere({ radius = 1 }: AtmosphereProps) {
 
   const uniforms = useMemo(
     () => ({
-      glowColor: { value: new THREE.Color("#5eb8e4") },
-      intensity: { value: 0.3 },
+      glowColor: { value: new THREE.Color("#6ec4ec") }, // Brighter
+      intensity: { value: 0.45 }, // Increased from 0.3
     }),
     []
   );
@@ -49,12 +54,12 @@ export function Atmosphere({ radius = 1 }: AtmosphereProps) {
   useFrame(() => {
     if (meshRef.current) {
       // Subtle pulsing effect
-      uniforms.intensity.value = 0.3 + Math.sin(Date.now() * 0.001) * 0.02;
+      uniforms.intensity.value = 0.45 + Math.sin(Date.now() * 0.001) * 0.02;
     }
   });
 
   return (
-    <mesh ref={meshRef} scale={[1.05, 1.05, 1.05]}>
+    <mesh ref={meshRef} scale={[1.06, 1.06, 1.06]}>
       <sphereGeometry args={[radius, 64, 64]} />
       <shaderMaterial
         vertexShader={atmosphereVertexShader}
