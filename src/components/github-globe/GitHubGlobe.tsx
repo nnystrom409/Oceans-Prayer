@@ -33,6 +33,16 @@ export function GitHubGlobe({
 }: GitHubGlobeProps) {
   const groupRef = useRef<THREE.Group>(null);
   const radius = 1;
+  const hasInteractedRef = useRef(false);
+  const dragStateRef = useRef({
+    active: false,
+    moved: false,
+    startX: 0,
+    startY: 0,
+    pointerId: null as number | null,
+  });
+
+  const DRAG_THRESHOLD_PX = 6;
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [idMap, setIdMap] = useState<Awaited<ReturnType<typeof loadCountryIdMap>> | null>(null);
@@ -43,7 +53,7 @@ export function GitHubGlobe({
 
   // Auto-rotation
   useFrame((_, delta) => {
-    if (groupRef.current && autoRotate) {
+    if (groupRef.current && autoRotate && !hasInteractedRef.current) {
       groupRef.current.rotation.y += delta * rotationSpeed;
     }
 
@@ -76,9 +86,50 @@ export function GitHubGlobe({
     };
   }, []);
 
-  const handleClick = useCallback(
-    (event: ThreeEvent<MouseEvent>) => {
+  const handlePointerDown = useCallback((event: ThreeEvent<PointerEvent>) => {
+    event.stopPropagation();
+    hasInteractedRef.current = true;
+    dragStateRef.current.active = true;
+    dragStateRef.current.moved = false;
+    dragStateRef.current.startX = event.nativeEvent.clientX;
+    dragStateRef.current.startY = event.nativeEvent.clientY;
+    dragStateRef.current.pointerId = event.pointerId;
+    (event.nativeEvent.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
+  }, []);
+
+  const handlePointerMove = useCallback((event: ThreeEvent<PointerEvent>) => {
+    if (!dragStateRef.current.active || dragStateRef.current.moved) return;
+    const dx = event.nativeEvent.clientX - dragStateRef.current.startX;
+    const dy = event.nativeEvent.clientY - dragStateRef.current.startY;
+    if (dx * dx + dy * dy > DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+      dragStateRef.current.moved = true;
+    }
+  }, []);
+
+  const handlePointerCancel = useCallback((event: ThreeEvent<PointerEvent>) => {
+    const pointerId = dragStateRef.current.pointerId;
+    if (pointerId !== null) {
+      (event.nativeEvent.target as HTMLCanvasElement).releasePointerCapture(pointerId);
+    }
+    dragStateRef.current.active = false;
+    dragStateRef.current.moved = false;
+    dragStateRef.current.pointerId = null;
+  }, []);
+
+  const handlePointerUp = useCallback(
+    (event: ThreeEvent<PointerEvent>) => {
       event.stopPropagation();
+      const pointerId = dragStateRef.current.pointerId;
+      if (pointerId === null) return;
+      (event.nativeEvent.target as HTMLCanvasElement).releasePointerCapture(pointerId);
+
+      const wasDrag = dragStateRef.current.moved;
+      dragStateRef.current.active = false;
+      dragStateRef.current.moved = false;
+      dragStateRef.current.pointerId = null;
+
+      if (wasDrag) return;
+
       const { lat, lng } = vector3ToLatLng(event.point, radius);
 
       if (idMap && !idMapError) {
@@ -113,6 +164,10 @@ export function GitHubGlobe({
     [idMap, idMapError, onCountrySelect, radius]
   );
 
+  const stopAutoRotate = useCallback(() => {
+    hasInteractedRef.current = true;
+  }, []);
+
   return (
     <>
       {/* 4-light setup following GitHub's approach */}
@@ -145,7 +200,10 @@ export function GitHubGlobe({
 
         {/* Invisible hit target for pointer events (matches globe size) */}
         <mesh
-          onClick={handleClick}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
           renderOrder={1000}
         >
           <sphereGeometry args={[radius * 1.03, 64, 64]} />
@@ -167,6 +225,7 @@ export function GitHubGlobe({
         maxDistance={4}
         rotateSpeed={0.5}
         zoomSpeed={0.5}
+        onStart={stopAutoRotate}
         autoRotate={false}
       />
     </>

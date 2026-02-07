@@ -17,6 +17,10 @@ interface D3GlobeProps {
   autoRotate?: boolean;
 }
 
+// Zoom limits
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 4;
+
 // Colors
 const OCEAN_COLOR = "#e0f2fe";
 const LAND_COLOR = "#ffffff";
@@ -24,6 +28,8 @@ const BORDER_COLOR = "#94a3b8";
 const HOVER_COLOR = "#bae6fd";
 const SELECTED_COLOR = "#7dd3fc";
 const GRATICULE_COLOR = "#cbd5e1";
+const ARC_RGB = "56, 189, 248";
+const ARC_ALPHA = 0.4;
 
 // Arc animation constants
 const ARC_GROW_DURATION = 2500;
@@ -63,12 +69,20 @@ export default function D3Globe({
   const hoveredRef = useRef<CountryFeature | null>(null);
   const selectedRef = useRef<CountryFeature | null>(null);
   const autoRotateRef = useRef(autoRotate);
+  const hasInteractedRef = useRef(false);
+  const focusTargetRef = useRef<[number, number, number] | null>(null);
+  const lastFrameRef = useRef<number>(0);
   const sizeRef = useRef<{ width: number; height: number }>({
     width: 800,
     height: 800,
   });
   const arcsRef = useRef<ArcState[]>([]);
   const lastSpawnRef = useRef(0);
+  const scaleFactorRef = useRef(1);
+  const baseScaleRef = useRef(0);
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStartDistRef = useRef<number | null>(null);
+  const pinchStartScaleRef = useRef(1);
   const [dpr, setDpr] = useState(1);
 
   autoRotateRef.current = autoRotate;
@@ -187,7 +201,7 @@ export default function D3Globe({
       // Draw arc line with gradient-like fade (thinner at origin, thicker at head)
       ctx.beginPath();
       pathGenerator(lineString);
-      ctx.strokeStyle = `rgba(56, 189, 248, ${0.5 * opacity})`;
+      ctx.strokeStyle = `rgba(${ARC_RGB}, ${0.5 * ARC_ALPHA * opacity})`;
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
@@ -217,8 +231,8 @@ export default function D3Globe({
             projected[0], projected[1], 0,
             projected[0], projected[1], 8
           );
-          gradient.addColorStop(0, `rgba(56, 189, 248, ${0.4 * opacity})`);
-          gradient.addColorStop(1, `rgba(56, 189, 248, 0)`);
+          gradient.addColorStop(0, `rgba(${ARC_RGB}, ${0.4 * ARC_ALPHA * opacity})`);
+          gradient.addColorStop(1, `rgba(${ARC_RGB}, 0)`);
           ctx.beginPath();
           ctx.arc(projected[0], projected[1], 8, 0, Math.PI * 2);
           ctx.fillStyle = gradient;
@@ -227,7 +241,7 @@ export default function D3Globe({
           // Solid dot
           ctx.beginPath();
           ctx.arc(projected[0], projected[1], 2.5, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(56, 189, 248, ${opacity})`;
+          ctx.fillStyle = `rgba(${ARC_RGB}, ${ARC_ALPHA * opacity})`;
           ctx.fill();
         }
       }
@@ -253,7 +267,7 @@ export default function D3Globe({
             const ringAlpha = 0.6 * (1 - arriveProgress);
             ctx.beginPath();
             ctx.arc(destProjected[0], destProjected[1], ringRadius, 0, Math.PI * 2);
-            ctx.strokeStyle = `rgba(56, 189, 248, ${ringAlpha})`;
+            ctx.strokeStyle = `rgba(${ARC_RGB}, ${ARC_ALPHA * ringAlpha})`;
             ctx.lineWidth = 1.5;
             ctx.stroke();
           }
@@ -282,8 +296,8 @@ export default function D3Globe({
           irvineProjected[0], irvineProjected[1], 0,
           irvineProjected[0], irvineProjected[1], 10
         );
-        glowGradient.addColorStop(0, `rgba(14, 165, 233, ${0.3 * pulse})`);
-        glowGradient.addColorStop(1, `rgba(14, 165, 233, 0)`);
+        glowGradient.addColorStop(0, `rgba(${ARC_RGB}, ${0.3 * ARC_ALPHA * pulse})`);
+        glowGradient.addColorStop(1, `rgba(${ARC_RGB}, 0)`);
         ctx.beginPath();
         ctx.arc(irvineProjected[0], irvineProjected[1], 10, 0, Math.PI * 2);
         ctx.fillStyle = glowGradient;
@@ -292,7 +306,7 @@ export default function D3Globe({
         // Dot
         ctx.beginPath();
         ctx.arc(irvineProjected[0], irvineProjected[1], 3, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(14, 165, 233, ${pulse})`;
+        ctx.fillStyle = `rgba(${ARC_RGB}, ${ARC_ALPHA * pulse})`;
         ctx.fill();
       }
     }
@@ -312,10 +326,39 @@ export default function D3Globe({
     const projection = projectionRef.current;
     if (!projection) return;
 
+    const now = performance.now();
+    const deltaSeconds = lastFrameRef.current
+      ? (now - lastFrameRef.current) / 1000
+      : 0;
+    lastFrameRef.current = now;
+
     if (!isDraggingRef.current) {
       const vel = velocityRef.current;
-      // Apply momentum decay
-      if (Math.abs(vel.vx) > 0.01 || Math.abs(vel.vy) > 0.01) {
+
+      if (focusTargetRef.current) {
+        const [targetLng, targetLat] = focusTargetRef.current;
+        const [currentLng, currentLat] = rotationRef.current;
+        const smooth = 1 - Math.exp(-deltaSeconds * 6);
+
+        let dLng = targetLng - currentLng;
+        if (dLng > 180) dLng -= 360;
+        if (dLng < -180) dLng += 360;
+
+        const nextLng = currentLng + dLng * smooth;
+        const nextLat = currentLat + (targetLat - currentLat) * smooth;
+
+        rotationRef.current = [
+          nextLng,
+          Math.max(-90, Math.min(90, nextLat)),
+          0,
+        ];
+
+        if (Math.abs(dLng) < 0.1 && Math.abs(targetLat - currentLat) < 0.1) {
+          rotationRef.current = [targetLng, targetLat, 0];
+          focusTargetRef.current = null;
+        }
+      } else if (Math.abs(vel.vx) > 0.01 || Math.abs(vel.vy) > 0.01) {
+        // Apply momentum decay
         rotationRef.current = [
           rotationRef.current[0] + vel.vx,
           Math.max(-90, Math.min(90, rotationRef.current[1] - vel.vy)),
@@ -323,7 +366,7 @@ export default function D3Globe({
         ];
         vel.vx *= 0.95;
         vel.vy *= 0.95;
-      } else if (autoRotateRef.current) {
+      } else if (autoRotateRef.current && !hasInteractedRef.current) {
         // Auto-rotate
         rotationRef.current = [
           rotationRef.current[0] + 0.15,
@@ -336,7 +379,6 @@ export default function D3Globe({
     }
 
     // Arc lifecycle management
-    const now = performance.now();
     const arcs = arcsRef.current;
 
     // Spawn new arcs
@@ -369,6 +411,7 @@ export default function D3Globe({
       (arc) => !(arc.phase === "fading" && now - arc.phaseStartTime >= ARC_FADE_DURATION)
     );
 
+    projection.scale(baseScaleRef.current * scaleFactorRef.current);
     projection.rotate(rotationRef.current);
     draw();
     animFrameRef.current = requestAnimationFrame(animate);
@@ -384,19 +427,25 @@ export default function D3Globe({
 
     const updateSize = () => {
       const rect = container.getBoundingClientRect();
-      const size = Math.min(rect.width, rect.height);
+      const width = rect.width;
+      const height = rect.height;
+      const globeSize = Math.min(width, height);
       const pixelRatio = window.devicePixelRatio || 1;
 
-      sizeRef.current = { width: size, height: size };
-      canvas.width = size * pixelRatio;
-      canvas.height = size * pixelRatio;
-      canvas.style.width = `${size}px`;
-      canvas.style.height = `${size}px`;
+      sizeRef.current = { width, height };
+      canvas.width = width * pixelRatio;
+      canvas.height = height * pixelRatio;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
 
       const projection = geoOrthographic()
-        .fitSize([size, size], { type: "Sphere" })
+        .fitSize([globeSize, globeSize], { type: "Sphere" })
+        .translate([width / 2, height / 2])
         .clipAngle(90)
         .rotate(rotationRef.current);
+
+      baseScaleRef.current = projection.scale();
+      projection.scale(baseScaleRef.current * scaleFactorRef.current);
 
       projectionRef.current = projection;
     };
@@ -430,11 +479,23 @@ export default function D3Globe({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
-      isDraggingRef.current = true;
+      hasInteractedRef.current = true;
+      focusTargetRef.current = null;
       const pt = getCanvasPoint(e);
-      lastPointerRef.current = pt;
-      velocityRef.current = { vx: 0, vy: 0 };
       (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+
+      pointersRef.current.set(e.pointerId, pt);
+
+      if (pointersRef.current.size === 2) {
+        const [a, b] = [...pointersRef.current.values()];
+        pinchStartDistRef.current = Math.hypot(a.x - b.x, a.y - b.y);
+        pinchStartScaleRef.current = scaleFactorRef.current;
+        isDraggingRef.current = false;
+      } else {
+        isDraggingRef.current = true;
+        lastPointerRef.current = pt;
+        velocityRef.current = { vx: 0, vy: 0 };
+      }
     },
     [getCanvasPoint]
   );
@@ -442,6 +503,18 @@ export default function D3Globe({
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       const pt = getCanvasPoint(e);
+      pointersRef.current.set(e.pointerId, pt);
+
+      if (pointersRef.current.size === 2 && pinchStartDistRef.current) {
+        const [a, b] = [...pointersRef.current.values()];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        const ratio = dist / pinchStartDistRef.current;
+        scaleFactorRef.current = Math.min(
+          MAX_ZOOM,
+          Math.max(MIN_ZOOM, pinchStartScaleRef.current * ratio)
+        );
+        return;
+      }
 
       if (isDraggingRef.current && lastPointerRef.current) {
         const dx = pt.x - lastPointerRef.current.x;
@@ -476,6 +549,10 @@ export default function D3Globe({
 
   const handlePointerUp = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
+      pointersRef.current.delete(e.pointerId);
+      if (pointersRef.current.size < 2) {
+        pinchStartDistRef.current = null;
+      }
       isDraggingRef.current = false;
       lastPointerRef.current = null;
       (e.target as HTMLCanvasElement).releasePointerCapture(e.pointerId);
@@ -483,8 +560,30 @@ export default function D3Globe({
     []
   );
 
+  // Attach wheel listener imperatively with { passive: false } so
+  // preventDefault() actually stops the page from scrolling.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const zoomSpeed = 0.001;
+      const delta = -e.deltaY * zoomSpeed;
+      scaleFactorRef.current = Math.min(
+        MAX_ZOOM,
+        Math.max(MIN_ZOOM, scaleFactorRef.current * (1 + delta))
+      );
+    };
+
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", handleWheel);
+  }, []);
+
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      hasInteractedRef.current = true;
+      const projection = projectionRef.current;
       // Only register click if not dragging (check velocity)
       const vel = velocityRef.current;
       if (Math.abs(vel.vx) > 1 || Math.abs(vel.vy) > 1) return;
@@ -499,6 +598,14 @@ export default function D3Globe({
       if (country) {
         selectedRef.current = country;
         onCountrySelect(country.properties.NAME);
+        if (projection) {
+          const coords = projection.invert?.([x, y]);
+          if (coords) {
+            const [lng, lat] = coords;
+            focusTargetRef.current = [-lng, -lat, 0];
+            velocityRef.current = { vx: 0, vy: 0 };
+          }
+        }
       } else {
         selectedRef.current = null;
         onCountrySelect(null);
