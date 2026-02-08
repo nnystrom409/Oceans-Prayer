@@ -70,12 +70,7 @@ export async function POST(req: Request) {
 
           for await (const part of result.fullStream) {
             if (part.type === "text-delta") {
-              const delta =
-                "text" in part
-                  ? part.text
-                  : "delta" in part
-                    ? part.delta
-                    : "";
+              const delta = part.text;
               if (delta) {
                 text += delta;
                 sendEvent("delta", { delta });
